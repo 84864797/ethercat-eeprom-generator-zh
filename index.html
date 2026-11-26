@@ -1,0 +1,415 @@
+<html lang="zh-CN">
+<head>
+   <meta charset="UTF-8">
+   <title>EEPROM 生成器 · EtherCAT ESI 和 SOES 配置</title>
+<!--
+ * SOES EEPROM generator
+ * This tool serves as:
+- EtherCAT Slave Information XML + EEPROM binary generator
+- SOES code generator
+
+ * Victor Sluiter 2013-2018
+ * Kuba Buda 2020-2021
+ -->
+   <script src="lib/jszip.min.js"></script>
+
+   <script src="src/constants.js"></script>
+   <script src="src/od.js"></script>
+   <script src="src/file_io.js"></script>
+   <script src="src/backup.js"></script>
+   
+   <script src="src/generators/ecat_options.js"></script>
+   <script src="src/generators/EEPROM.js"></script>
+   <script src="src/generators/esi_xml.js"></script>
+   <script src="src/generators/objectlist.js"></script>
+   <script src="src/generators/utypes.js"></script>   
+   
+   <script src="src/ui.js"></script>
+   
+   <link rel="stylesheet" href="styles/styles.css">
+</head>
+
+<body>
+   <!-- Modal dialog to edit OD objects  -->
+   <div id="editObjectModal" class="modal">
+   <!-- Modal content -->
+      <div class="modal-content">
+         <span class="close" onClick="odModalClose()">&times;</span>
+         <h3 id="editObjectTitle">编辑对象</h3>
+         <form name="EditObjectForm" id="EditObjectForm" action="" onsubmit="onEditObjectSubmit(this); return false;">
+            <table border="0">
+               <tr id="dialogRowIndex">
+                  <td>索引</td>
+                  <td><input type = "text" name="Index" value="0x6000" title="输入新对象在对象字典中的索引" id="modalInputIndex"></td>
+               </tr>
+               <tr>
+                  <td>对象名称</td>
+                  <td><input type = "text" name="ObjectName" value="" title="输入新对象的名称" id="modalInputObjectName"></td>
+               </tr>
+               <tr id="dialogRowDtype">
+                  <td>数据类型</td>
+                  <td><select type = "text" name="DTYPE" title="选择新对象的数据类型">
+                     <option value="BOOLEAN">布尔值（BOOLEAN）</option>
+                     <option value="INTEGER8">8 位有符号整数（INTEGER8）</option>
+                     <option value="INTEGER16">16 位有符号整数（INTEGER16）</option>
+                     <option value="INTEGER32">32 位有符号整数（INTEGER32）</option>
+                     <option value="INTEGER64">64 位有符号整数（INTEGER64）</option>
+                     <option value="UNSIGNED8">8 位无符号整数（UNSIGNED8）</option>
+                     <option value="UNSIGNED16">16 位无符号整数（UNSIGNED16）</option>
+                     <option value="UNSIGNED32">32 位无符号整数（UNSIGNED32）</option>
+                     <option value="UNSIGNED64">64 位无符号整数（UNSIGNED64）</option>
+                     <option value="REAL32">单精度浮点数（REAL32）</option>
+                     <option value="REAL64">双精度浮点数（REAL64）</option>
+                     <option value="VISIBLE_STRING">可见字符串（VISIBLE_STRING）</option>
+                  </select></td>
+               </tr>
+               <tr id="dialogRowValue">
+                  <td>初始值</td>
+                  <td><input type = "text" name="InitalValue" value="0" title="输入新对象的初始值"></td>
+               </tr>
+               <tr id="dialogRowAccess">
+                  <td>访问权限</td>
+                  <td><select type = "text" name="Access" title="选择新对象的访问权限">
+                     <option value="RO">只读（RO）</option>
+                     <option value="RW">读写（RW）</option>
+                     <option value="WO">只写（WO）</option>
+                     <option value="RWpre">仅 Pre-OP 可写（RWpre）</option>
+                  </select></td>
+               </tr>
+               <tr>
+                  <td align="center">
+                     <button name="Cancel" onClick='odModalClose();'>✖️ &nbsp; 取消 &nbsp;</button>
+                  </td><td>
+                     <input type="submit" name="SaveChanges" value="✔️&nbsp; 保存 &nbsp;">
+                  </td>
+               </tr>
+            </table>
+         </form>
+      </div>
+   </div>
+
+   <!-- Modal dialog to edit synchronization modes  -->
+   <div id="syncModal" class="modal">
+      <!-- Modal content -->
+         <div class="modal-content">
+            <span class="close" onClick="syncModalClose()">&times;</span>
+            <h3 id="editObjectTitle">编辑同步模式</h3>
+
+            <form name="syncModalForm" id="syncModalForm" action="" onsubmit="onSyncSubmit(this); return false;">
+               <table border="0">
+                  <tr>
+                     <td>名称</td>
+                     <td><input type = "text" name="Name" value="New sync modee" title="输入新同步模式的名称" id="syncModalName"></td>
+                  </tr>
+                  <tr>
+                     <td>描述</td>
+                     <td><input type = "text" name="Description" value="New sync mode description" title="输入新同步模式的描述" id="syncModalDescription"></td>
+                  </tr>
+                  <tr>
+                     <td>激活配置（AssignActivate）</td>
+                     <td><input type = "text" name="AssignActivate" value="0x0" title="输入新同步模式的 AssignActivate 值" id="syncModalAssignActivate"></td>
+                  </tr>
+               </table>
+               <table border="0">
+                  <tr>
+                     <td>SYNC0 周期</td>
+                     <td><input type = "text" name="Sync0cycleTime" value="0" title="输入 SYNC0 周期" id="syncModalSync0cycleTime"></td>
+                     <td>SYNC0 偏移</td>
+                     <td><input type = "text" name="Sync0shiftTime" value="0" title="输入 SYNC0 偏移时间" id="syncModalSync0shiftTime"></td>
+                  </tr>
+                  <tr>
+                     <td>SYNC1 周期</td>
+                     <td><input type = "text" name="Sync1cycleTime" value="0" title="输入 SYNC1 周期" id="syncModalSync1cycleTime"></td>
+                     <td>SYNC1 偏移</td>
+                     <td><input type = "text" name="Sync1shiftTime" value="0" title="输入 SYNC1 偏移时间" id="syncModalSync1shiftTime"></td>
+                  </tr>
+               </table>
+               <table border="0" style="padding-top: 20px;">
+                  <tr>
+                     <td align="center">
+                        <button name="Cancel" onClick='syncModalClose();'>✖️ &nbsp; 取消 &nbsp;</button>
+                     </td><td>
+                        <input type="submit" name="SaveChanges" value="✔️&nbsp; 保存 &nbsp;">
+                     </td>
+                  </tr>
+               </table>
+            </form>
+         </div>
+   </div>
+      
+   <div class="settings-menu">
+      <span></span>
+      <h1> 🔁 EEPROM 生成器</h1>
+      <div>
+         <div class="dropdown">
+            <button class="dropbtn">⚙️ 设置</button>
+            <div class="dropdown-content">
+               <a href="#">
+                  <button name="DarkMode" onClick='toggleDarkMode();' title="切换浅色和深色模式">
+                     <span class="display-dark">🌞 浅色模式</span>
+                     <span class="display-light">🌜 深色模式</span>
+                  </button>
+               </a>
+               <a href="./tests.html">
+                  <button name="tests" title="运行单元测试">
+                     🔴🟢 单元测试 &nbsp;
+                  </button>
+               </a>
+            </div>
+         </div>
+      </div>
+   </div>
+   
+   <div class="main-wrapper">
+      <div id="pageHeading">
+         <h2>EtherCAT EEPROM 与 SOES 对象字典配置</h2>
+         <p>
+            在此配置从站参数、对象字典和 PDO 映射，并生成配套的 ESI XML、EEPROM 镜像和 SOES 源文件。<br>
+            将鼠标悬停在字段上可查看说明。已有 <code>esi.json</code> 时，可在页面底部选择「打开项目」。<br>
+            <a href="https://github.com/OpenEtherCATsociety/SOES">SOES 源码和示例</a> ·
+            <a href="https://rt-labs.com/docs/soes/tutorial.html">SOES 入门文档</a> 
+         </p>
+      </div>
+      <br>
+         
+      <form name="SlaveForm" id="SlaveForm" action="" onsubmit="return false;">
+         <table border="0">
+            <tr>
+               <td><strong>配置项</strong></td><td><strong>值</strong></td><td width="12%"><strong>ESI</strong></td><td width="12%"><strong>EEPROM</strong></td><td width="12%"><strong>objectlist.c</strong></td><td width="12%"><strong>ecat_options.h</strong></td>
+            </tr>
+            <tr>
+               <td>厂商名称</td><td><input type = "text" name="VendorName" value="ACME EtherCAT Devices" title="输入在 EtherCAT 技术协会（ETG）会员名单中登记的厂商名称"></td><td>x</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>厂商 ID</td><td><input type = "text" name="VendorID" value="0x000" title="Vendor ID 由 ETG 分配给会员。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>产品代码</td><td><input type = "text" name="ProductCode" value="0x00ab123" title="不同产品应使用不同的产品代码。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>行规编号</td><td><input type = "text" name="ProfileNo" value="5001" title="用于标识设备类型的行规编号。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td></td><td></td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>修订号</td><td><input type = "text" name="RevisionNumber" value="0x002" title="产品修订号。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>序列号</td><td><input type = "text" name="SerialNumber" value="0x001" title="用于生产标识的序列号。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>硬件版本</td><td><input type = "text" name="HWversion" value="0.0.1" title="以字符串形式输入硬件版本"><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>软件版本</td><td><input type = "text" name="SWversion" value="0.0.1" title="以字符串形式输入软件版本"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr><td colspan="6"><hr></td</tr>
+            <tr>
+               <td>EEPROM 容量（字节）</td><td><input type = "text" name="EEPROMsize" value="2048" title="输入 EEPROM 容量，单位为字节。2048 字节等于 16 kbit。&#013;可输入十六进制（0x…）或十进制值。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>接收邮箱偏移</td><td><input type = "text" name="RxMailboxOffset" value="0x1000" title="内存起始偏移。请与从站固件和主站配置保持一致。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>x</td>
+            </tr>
+            <tr>
+               <td>发送邮箱偏移</td><td><input type = "text" name="TxMailboxOffset" value="0x1200" title="内存起始偏移。请与从站固件和主站配置保持一致。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>x</td>
+            </tr>
+            <tr>
+               <td>收发邮箱大小（字节）</td><td><input type = "text" name="MailboxSize" value="512" title="邮箱大小，单位为字节。请与从站固件和主站配置保持一致。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>x</td>
+            </tr>
+            <tr>
+               <td>同步管理器 2 偏移</td><td><input type = "text" name="SM2Offset" value="0x1600" title="内存起始偏移。请与从站固件和主站配置保持一致。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>x</td>
+            </tr>
+            <tr>
+               <td>同步管理器 3 偏移</td><td><input type = "text" name="SM3Offset" value="0x1A00" title="内存起始偏移。请与从站固件和主站配置保持一致。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>x</td>
+            </tr>
+            <tr><td colspan="6"><hr></td</tr>
+            <tr>
+               <td>分组类型</td><td><input type = "text" name="TextGroupType" value="DigIn" title="ESI 中用于分组的类别，例如 DigIn、DigOut 或 Measurement。见 ETG.2000。"></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>分组名称</td><td><input type = "text" name="TextGroupName5" value="Digital input" title="ESI 中显示的分组名称。见 ETG.2000。"></td><td>x</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>图像名称</td><td><input type = "text" name="ImageName" value="IMGCBY" title="EtherCAT 配置工具中使用的图像名称"></td><td>&nbsp;</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>设备型号</td><td><input type = "text" name="TextDeviceType" value="DigIn2000" title="产品名称或订货号"></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>设备名称</td><td><input type = "text" name="TextDeviceName" value="2-channel Hypergalactic input superimpermanator" title="设备的显示名称"></td><td>x</td><td>x</td><td>x</td><td>&nbsp;</td>
+            </tr>
+            <tr><td colspan="6"><hr></td</tr>
+            <tr>
+               <td>端口 0 物理接口</td><td><select name="Port0Physical" title="选择该端口的物理接口类型">
+                  <option value="Y" selected>MII</option>
+                  <option value="H">MII 快速热连接</option>
+                  <option value="K">EBUS</option>
+                  <option value=" ">未使用</option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>端口 1 物理接口</td><td><select name="Port1Physical" title="选择该端口的物理接口类型">
+                  <option value="Y" selected>MII</option>
+                  <option value="H">MII 快速热连接</option>
+                  <option value="K">EBUS</option>
+                  <option value=" ">未使用</option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>端口 2 物理接口</td><td><select name="Port2Physical" title="选择该端口的物理接口类型">
+                  <option value="Y">MII</option>
+                  <option value="H">MII 快速热连接</option>
+                  <option value="K">EBUS</option>
+                  <option value=" " selected>未使用</option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>
+               <td>端口 3 物理接口</td><td><select name="Port3Physical" title="选择该端口的物理接口类型">
+                  <option value="Y">MII</option>
+                  <option value="H">MII 快速热连接</option>
+                  <option value="K">EBUS</option>
+                  <option value=" " selected>未使用</option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr><td colspan="6"><hr></td</tr>
+            <tr>
+               <td>EtherCAT 从站控制器（ESC）</td><td><select name="ESC" title="选择使用的 EtherCAT 从站控制器">
+                  <option value="AX58100">AX58100</option>
+                  <option value="ET1100">ET1100</option>
+                  <option value="LAN9252">LAN9252</option>
+                  <option value="LAN9253 Beckhoff">LAN9253 Beckhoff</option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr>      
+               <td>SPI 模式</td><td><select name="SPImode" title="选择使用的 SPI 模式">
+                  <option value="3">3 (CPOL=1 CPHA=1) </option>
+                  <option value="2">2 (CPOL=1 CPHA=0) </option>
+                  <option value="1">1 (CPOL=0 CPHA=1) </option>
+                  <option value="0">0 (CPOL=0 CPHA=0) </option>
+               </select></td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>   
+            <tr><td colspan="6"><hr></td</tr>
+            <tr><td>
+               <input type="checkbox" name="CoeDetailsEnableSDO" value="EnableSDO" checked>启用 SDO<br>
+               <input type="checkbox" name="CoeDetailsEnableSDOInfo" value="EnableSDOInfo" checked>启用 SDO 信息服务<br>
+               <input type="checkbox" name="CoeDetailsEnablePDOAssign" value="EnablePDOAssign">允许 PDO 分配<br>
+               <input type="checkbox" name="CoeDetailsEnablePDOConfiguration" value="EnablePDOConfiguration">允许配置 PDO 映射<br>
+               <input type="checkbox" name="CoeDetailsEnableUploadAtStartup" value="EnableUploadAtStartup" checked>允许启动时上传<br>
+               <input type="checkbox" name="CoeDetailsEnableSDOCompleteAccess" value="EnableSDOCompleteAccess">启用 SDO 完整访问<br>
+               </td><td>&nbsp;</td><td>x</td><td>x</td><td>&nbsp;</td><td>&nbsp;</td>
+            </tr>
+            <tr><td colspan="6"><hr></td</tr>
+            <tr><td colspan="6">
+               <h3 class="odSectionHeading">
+                  <span class="odSectionTitle"> SDO 对象 </span>
+                  <span>
+                     <button onClick="editVAR_Click(sdo)">➕ 添加变量</button>
+                     <button onClick="editARRAY_Click(sdo)">➕ 添加数组</button>
+                     <button onClick="editRECORD_Click(sdo)">➕ 添加记录</button>
+                  </span>
+                  </h3>
+               <div id="tr_sdo"></div>
+            </td></tr>
+            
+            <tr><td colspan="6"><hr></td</tr>
+            <tr><td colspan="6">
+               <h3 class="odSectionHeading">
+                  <span title="支持一个固定的 TxPDO" class="odSectionTitle"> TxPDO（从站 → 主站） </span>
+                  <span>
+                     <button onClick="editVAR_Click(txpdo)">➕ 添加变量</button>
+                     <button onClick="editARRAY_Click(txpdo)">➕ 添加数组</button>
+                     <button onClick="editRECORD_Click(txpdo)">➕ 添加记录</button>
+                  </span>
+               </h3>
+               <div id="tr_txpdo"></div>
+            </td></tr>
+            
+            <tr><td colspan="6"><hr></td</tr>
+            <tr><td colspan="6">
+               <h3 class="odSectionHeading">
+                  <span title="支持一个固定的 RxPDO" class="odSectionTitle"> RxPDO（主站 → 从站） </span>
+                  <span>
+                     <button onClick="editVAR_Click(rxpdo)">➕ 添加变量</button>
+                     <button onClick="editARRAY_Click(rxpdo)">➕ 添加数组</button>
+                     <button onClick="editRECORD_Click(rxpdo)">➕ 添加记录</button>
+                  </span>
+               </h3>
+               <div id="tr_rxpdo"></div>
+            </td></tr>
+
+            <tr><td colspan="6"><hr></td</tr>
+               <h3 class="odSectionHeading">
+                  <span title="配置分布式时钟（DC）" class="odSectionTitle"> 分布式时钟（DC） </span>
+                  <span>
+                     <button onClick="addSyncClick()">➕ 添加同步模式</button>
+                  </span>
+               </h3>
+               <div id="dcSyncModes"></div>
+            
+            <tr><td colspan="6"><hr></td</tr>
+
+            <tr><td colspan="6" align="center">
+               <button name="GenerateDownload" onclick="onGenerateDownloadClick()" title="生成全部文件并打包下载">
+                  ⏬ &nbsp; 下载全部文件 &nbsp;
+               </button>
+               <button id='GenerateFilesButton' name="Generate" onClick="onGenerateClick();" title="生成全部文件">
+                  &nbsp; 生成文件 &nbsp;
+               </button>
+               <button name="Save" onClick='onSaveClick();' title="将当前配置和对象字典保存为 JSON 文件">
+                  ⤵️ &nbsp; 保存项目 &nbsp;
+               </button>
+               <button name="Restore" onClick='onRestoreClick();' title="从先前保存的 JSON 文件恢复配置和对象字典">
+                  ⤴️ &nbsp; 打开项目 &nbsp;
+               </button>
+               <button name="Reset" onClick='onResetClick();' title="恢复默认配置并清空对象字典条目">
+                  ‼️ &nbsp; 重置项目 &nbsp;
+               </button>
+            </td></tr>
+         </table>
+      </form>
+
+      <br><br>
+      <form name="outCodeForm" id="outCodeForm" spellcheck="false" action="" onsubmit="return false;">
+         ESI XML 文件
+         <button name="DownloadESI" onClick="onDownloadEsiXmlClick()">
+            🔽 &nbsp; 下载 &nbsp;
+         </button>   
+         <br>
+         <textarea cols = "150" rows = "12" name="ESI">ESI XML 预览</textarea><br><br>
+         EEPROM HEX 文件
+         <button name="Download_HEX" 
+            onClick="downloadFile(getOutputForm().HEX.value, fileName = 'eeprom.hex', contentType = 'application/octet-stream');">
+            🔽 &nbsp; 下载 &nbsp;
+         </button>
+         <button name="Download_BIN" onClick="onDownloadBinClick();">
+            🔽 &nbsp; 下载 .bin &nbsp;
+         </button>
+         <br>
+         可使用 <a href="https://github.com/OpenEtherCATsociety/SOEM/">SOEM</a> 的 eepromtool 将 HEX 文件写入从站 EEPROM。
+         <br><br><i title="写入 .bin 文件时使用 -w 参数" id="hexInstallCmd">sudo ./eepromtool 1 eth0 -wi eeprom.hex</i><br><br>
+      
+         <textarea cols = "150" rows = "12" name="HEX">EEPROM HEX 预览</textarea><br><br>
+         ecat_options.h: 
+         <button name="Download_ecat_options" 
+            onClick="downloadFile(getOutputForm().ecat_options.value, fileName = 'ecat_options.h', contentType = 'text/plain');">
+            🔽 &nbsp; 下载 &nbsp;
+         </button>
+         <br>
+         <textarea cols = "150" rows = "12" name="ecat_options">ecat_options.h</textarea><br><br>
+         objectlist.c: 
+         <button name="Download_objectlist" 
+            onClick="downloadFile(getOutputForm().objectlist.value, fileName = 'objectlist.c', contentType = 'text/plain');">
+            🔽 &nbsp; 下载 &nbsp;
+         </button>
+         <br>
+         <textarea cols = "150" rows = "12" name="objectlist">objectlist.c</textarea><br><br>
+         utypes.h: 
+         <button name="Download_utypes"
+            onClick="downloadFile(getOutputForm().utypes.value, fileName = 'utypes.h', contentType = 'text/plain');">
+            🔽 &nbsp; 下载 &nbsp;
+         </button>
+         <br>
+         <textarea cols = "150" rows = "12" name="utypes">utypes.h</textarea><br><br>
+         <input id="restoreFileInput" type='file' accept=".json" style="visibility:hidden;" onchange="readFile(event)" />
+      </form>
+   </div>
+</body>
+</html>
