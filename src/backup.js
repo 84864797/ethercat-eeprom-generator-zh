@@ -8,6 +8,8 @@
 
  * Victor Sluiter 2013-2018
  * Kuba Buda 2020-2021
+ *
+ * Modified 2026-11-27 to persist checkbox states and restore legacy defaults.
  */
 'use strict'
 
@@ -25,11 +27,13 @@ function isValidBackup(backup) {
 function prepareBackupObject(form) {
 	const formValues = {};
 	if (form) {
-		Object.entries(form).forEach(formEntry => {
-			const formControl = formEntry[1]; // entry[0] is form control order number
-			if(isBackedUp(formControl) && formControl.value) {
+		Object.values(form).forEach(formControl => {
+			if (!isBackedUp(formControl)) return;
+			if (formControl.type === "checkbox") {
+				formValues[formControl.name] = formControl.checked;
+			} else if (formControl.value) {
 				formValues[formControl.name] = formControl.value;
-			};
+			}
 		});
 	}
 
@@ -62,10 +66,9 @@ function loadBackup(backupObject, form) {
 
 function setFormValues(form, backupObject) {
 	if (form) {
-		Object.entries(form).forEach(formEntry => {
-			const formControl = formEntry[1]; // entry[0] is index
+		Object.values(form).forEach(formControl => {
 			const formControlValue = backupObject.form[formControl.name];
-			if (isBackedUp(formControl) && formControlValue) {
+			if (isBackedUp(formControl) && formControlValue !== undefined) {
 				setFormControlValue(formControl, formControlValue);
 			};
 		});
@@ -73,11 +76,11 @@ function setFormValues(form, backupObject) {
 }
 
 function setFormControlValue(formControl, formControlValue) {
-	if (formControl.name.startsWith('CoeDetailsEnable')) {
-		if (formControlValue == true) {
-			formControl.checked = true;
-		} else {
-		}
+	if (formControl.type === "checkbox") {
+		// Old backups stored the label even when the box was unchecked.
+		formControl.checked = typeof formControlValue === "boolean"
+			? formControlValue
+			: formControl.defaultChecked;
 	} else {
 		formControl.value = formControlValue;
 	}

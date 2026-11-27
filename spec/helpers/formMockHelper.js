@@ -1,4 +1,5 @@
 var formMock = {};
+var _dc = [];
 
 function buildMockFormHelper(formValues = null) {
     const defaultFormValues = getFormDefaultValues().form;
@@ -13,6 +14,10 @@ function buildMockFormHelper(formValues = null) {
         const formControl = { 
             name: formControlName, 
         };
+        if (typeof defaultFormValues[formControlName] === 'boolean') {
+            formControl.type = 'checkbox';
+            formControl.defaultChecked = defaultFormValues[formControlName];
+        }
         setFormControlValue(formControl, formValues[formControlName]);
         formMock[formControlName] = formControl;
     });

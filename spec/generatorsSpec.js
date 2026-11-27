@@ -235,7 +235,6 @@ describe("generators", function() {
                   </SubItem>
                 </Info>
                 <Flags>
-                  <Access>ro</Access>
                 </Flags>
               </Object>
               <Object>
@@ -276,7 +275,6 @@ describe("generators", function() {
                   </SubItem>
                 </Info>
                 <Flags>
-                  <Access>ro</Access>
                 </Flags>
               </Object>
             </Objects>
@@ -302,9 +300,7 @@ describe("generators", function() {
     </Devices>
   </Descriptions>
 </EtherCATInfo>`;
-            console.log(result);
-            debugger;
-            expect(result.slice(9000)).toEqual(expectedesi.slice(9000));
+            expect(result).toEqual(expectedesi);
         });
 
         it("hex_generator should generate config data", function() {
